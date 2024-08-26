@@ -1,83 +1,127 @@
-import csv
+import datetime
+import os
+import time
 import PySimpleGUI as sg
 import cv2
-import os
+import pandas as pd
 
-# counting the numbers
-def is_number(s):
-    try:
-        float(s)
-        return True
-    except ValueError:
-        pass
-    try:
-        import unicodedata
-        unicodedata.numeric(s)
-        return True
-    except (TypeError, ValueError):
-        pass
-    return False
-
-# Take image function
-def takeImages():
+def recognize_attendence():
     sg.theme('Black')
-    layout = [[sg.Text('ID:', size =(7, 1), font='Helvetica 14'), sg.InputText('', font='Helvetica 14')],
-              [sg.Text('Name:', size =(7, 1), font='Helvetica 14'), sg.InputText('', font='Helvetica 14')],
-              [sg.Button('Submit', button_color=('white', '#303030'), font='Helvetica 14', size=(20,1)), 
-              sg.Button('Cancel', button_color=('white', '#303030'), font='Helvetica 14', size=(20,1))]]
-    window = sg.Window('Student Details', layout, element_justification='c')
+    layout = [  [sg.Image(filename='', key='image'),
+                [sg.Text(f'Date : {datetime.datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d")}', key='_date_', font=('Helvetica 18'))], 
+                [sg.Text(f'Time : {datetime.datetime.fromtimestamp(time.time()).strftime("%H:%M:%S")}', key='_time_', font=('Helvetica 18'))]],
+                [sg.Button("Clock IN",size=(25,2), font=('Helvetica 13'), button_color=('white', '#303030')),sg.Button("Clock OUT",size=(25,2), font=('Helvetica 13'), button_color=('white', '#303030')), sg.Button("Save Attendance",size=(25,2), font=('Helvetica 13'), button_color=('white', 'green')), sg.Button("Back",size=(15,2), font=('Helvetica 13'), button_color=('white', 'red')) ] ]
+    window = sg.Window('Mark Attendance', layout, auto_size_buttons=False, element_justification='c', location=(350, 75))
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    recognizer.read("TrainingImageLabel"+os.sep+"Trainner.yml")
+    faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    df = pd.read_csv("StudentDetails"+os.sep+"StudentDetails.csv")
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    col_names = ['Id', 'Name', 'Date', 'Clock IN Time', 'Clock OUT Time', 'Duration', 'Status']
+    attendance = pd.DataFrame(columns=col_names)
+    # Initialize and start realtime video capture
+    cam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    cam.set(3, 640)  # set video width
+    cam.set(4, 480)  # set video height
+    # Define min window size to be recognized as a face
+    minW = 0.1 * cam.get(3)
+    minH = 0.1 * cam.get(4)
+
+    lecture = sg.popup_get_text('Please Enter Lecture Duration', 'HH:MM:SS')
+
     while True:
-        event, values = window.read()
-        if event == sg.WIN_CLOSED or event == 'Cancel':  # if user closes window or clicks cancel
-            window.close()
-            break
-        elif event == 'Submit':
-            Id = values[0]
-            name = values[1]
-            window.close()
-    if(is_number(Id) and name.isalpha()):
-        cam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        detector = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        sampleNum = 0
-        layout = [ [sg.Text("Please look into the Camera",font='Helvetica 24')],
-                   [sg.Text("Progress: "),sg.ProgressBar(101, orientation='h', size=(20, 20), key='progressbar')],
-                   [sg.Image(filename='', key='image')],[sg.Button("Back to Menu",size=(40,1))] ]
-        window = sg.Window('Capture Image', layout, auto_size_buttons=False, element_justification='c', location=(350, 75))
-        progress_bar = window['progressbar']
-        while(True):
-            event, values = window.read(timeout=1)
-            if event == "Back to Menu" or event == sg.WIN_CLOSED:
+        event, values = window.read(timeout=1)
+        window.find_element('_time_').update(f'Date : {datetime.datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d")}')
+        window.find_element('_time_').update(f'Time : {datetime.datetime.fromtimestamp(time.time()).strftime("%H:%M:%S")}')
+        if event == 'Back':
+            c = sg.PopupYesNo(f'Save Attendance ?')
+            if c == 'N0':
                 cam.release()
                 cv2.destroyAllWindows()
                 window.close()
-                break
-            ret, img = cam.read()
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            faces = detector.detectMultiScale(gray, 1.3, 5, minSize=(30,30),flags = cv2.CASCADE_SCALE_IMAGE)
-            for(x,y,w,h) in faces:
-                cv2.rectangle(img, (x, y), (x+w, y+h), (10, 159, 255), 2)
-                #incrementing sample number
-                sampleNum = sampleNum+1
-                progress_bar.UpdateBar(int(sampleNum))
-                #saving the captured face in the dataset folder TrainingImage
-                cv2.imwrite("TrainingImage" + os.sep +name + "."+Id + '.' +
-                            str(sampleNum) + ".jpg", gray[y:y+h, x:x+w])
-                imgbytes = cv2.imencode(".png", img)[1].tobytes()
-                window["image"].update(data=imgbytes)
-            #wait for 100 miliseconds
-            if cv2.waitKey(100) & 0xFF == ord('q'):
-                break
-            # break if the sample number is more than 100
-            elif sampleNum > 100:
-                break
-        window.close()
-        cam.release()
-        cv2.destroyAllWindows()
-        res = "Images Saved for ID : " + Id + " Name : " + name
-        row = [Id, name]
-        with open("StudentDetails"+os.sep+"StudentDetails.csv", 'a+') as csvFile:
-            writer = csv.writer(csvFile)
-            writer.writerow(row)
-        csvFile.close()
-    else:
-        takeImages()
+            elif c == 'Yes':
+                ts = time.time()
+                date = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+                timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+                Hour, Minute, Second = timeStamp.split(":")
+                fileName = "Attendance"+os.sep+"Attendance_"+date+"_"+Hour+"-"+Minute+"-"+Second+".csv"
+                attendance.to_csv(fileName, index=False)
+                cam.release()
+                cv2.destroyAllWindows()
+                window.close()
+                sg.popup_timed('Attendance Successful')
+            break
+        elif event == "Save Attendance" or event == sg.WIN_CLOSED:
+            ts = time.time()
+            date = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+            timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+            Hour, Minute, Second = timeStamp.split(":")
+            fileName = "Attendance"+os.sep+"Attendance_"+date+"_"+Hour+"-"+Minute+"-"+Second+".csv"
+            attendance.to_csv(fileName, index=False)
+            cam.release()
+            cv2.destroyAllWindows()
+            window.close()
+            sg.popup_timed('Attendance Successful')
+            break
+        elif event == 'Clock IN':
+            check = sg.PopupYesNo(f'{aa[0]} are you clocking In?')
+            if check == 'Yes':
+                ts = time.time()
+                date = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+                timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+                aa = str(aa)[2:-2]
+                attendance.loc[len(attendance)] = [Id, aa, date, timeStamp, '-', '-', '-']
+            elif check == 'N0':
+                print('Not clocked IN')
+        elif event == 'Clock OUT':
+            check = sg.PopupYesNo(f'{aa[0]} are you clocking OUT?')
+            if check == 'Yes':
+                ts = time.time()
+                timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+                attendance.at[attendance[attendance['Id'] == Id].index.values, 'Clock OUT Time'] = timeStamp
+                co = attendance.loc[attendance[attendance['Id'] == Id].index.values, 'Clock OUT Time'].to_string().split(' ')
+                ci = attendance.loc[attendance[attendance['Id'] == Id].index.values, 'Clock IN Time'].to_string().split(' ')
+                FMT = '%H:%M:%S'
+                duration = datetime.datetime.strptime(co[-1], FMT) - datetime.datetime.strptime(ci[-1], FMT)
+                attendance.at[attendance[attendance['Id'] == Id].index.values, 'Duration'] = duration
+                d = datetime.datetime.strptime(lecture, FMT) - datetime.datetime.strptime(str(duration), FMT)
+                if int(str(d).split(':')[1]) in range(-5, 6):
+                    attendance.at[attendance[attendance['Id'] == Id].index.values, 'Status'] = 'Present'
+                else:
+                    attendance.at[attendance[attendance['Id'] == Id].index.values, 'Status'] = 'MCR'
+            elif check == 'No':
+                print('Not clocked OUT')
+
+        ret, im = cam.read()
+        gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+        faces = faceCascade.detectMultiScale(gray, 1.2, 5,minSize = (int(minW), int(minH)),flags = cv2.CASCADE_SCALE_IMAGE)
+        for(x, y, w, h) in faces:
+            cv2.rectangle(im, (x, y), (x+w, y+h), (10, 159, 255), 2)
+            Id, conf = recognizer.predict(gray[y:y+h, x:x+w])
+            if conf < 100:
+                aa = df.loc[df['Id'] == Id]['Name'].values
+                confstr = "  {0}%".format(round(100 - conf))
+                tt = str(Id)+"-"+aa
+            else:
+                Id = '  Unknown  '
+                tt = str(Id)
+                confstr = "  {0}%".format(round(100 - conf))
+            tt = str(tt)[2:-2]
+            if(100-conf) > 67:
+                tt = tt + " [Pass]"
+                cv2.putText(im, str(tt), (x+5,y-5), font, 1, (255, 255, 255), 2)
+            else:
+                cv2.putText(im, str(tt), (x + 5, y - 5), font, 1, (255, 255, 255), 2)
+            if (100-conf) > 67:
+                cv2.putText(im, str(confstr), (x + 5, y + h - 5), font,1, (0, 255, 0),1 )
+            elif (100-conf) > 50:
+                cv2.putText(im, str(confstr), (x + 5, y + h - 5), font, 1, (0, 255, 255), 1)
+            else:
+                cv2.putText(im, str(confstr), (x + 5, y + h - 5), font, 1, (0, 0, 255), 1)
+        attendance = attendance.drop_duplicates(subset=['Id'], keep='first')
+        imgbytes = cv2.imencode(".png", im)[1].tobytes()
+        window["image"].update(data=imgbytes)
+
+    cam.release()
+    cv2.destroyAllWindows()
+    os.system('cls')
